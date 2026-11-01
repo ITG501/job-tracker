@@ -183,17 +183,27 @@ function resetPaste() {
   $("imageNote").textContent = "Screenshots: Ctrl+V here, or drag the image in.";
 }
 
+function showDuplicate(d) {
+  const what = `${d.role} at ${d.company} (${LABEL[d.status]}${d.date ? ", " + d.date : ""})`;
+  const text = d.kind === "link" ? `Already in the tracker: ${what}.` : `This looks like one you already have: ${what}.`;
+  $("pasteMsg").replaceChildren(el("div", { className: "info-box bad" }, text + " ",
+    el("a", { href: "#", textContent: "Open it", onclick(e) { e.preventDefault(); openJob(d.id); } })));
+}
+
 $("read").onclick = async () => {
   $("read").disabled = true;
   msg($("pasteMsg"), "Reading…");
   try {
     const r = await api("/api/extract", "POST", { text: $("paste").value, image, url: draft?.url });
+    if (r.duplicate) { showDuplicate(r.duplicate); return; }
     if (r.needs_text) { draft = { url: r.url }; $("paste").value = ""; msg($("pasteMsg"), r.message, true); return; }
     draft = r.draft;
+    $("save").textContent = r.draft.duplicate ? "Save anyway" : "Save and score";
     $("fCompany").value = r.draft.company; $("fRole").value = r.draft.role; $("fLocation").value = r.draft.location;
     $("fUrl").value = r.draft.url; $("fDescription").value = r.draft.description;
     $("confirm").hidden = false;
     msg($("pasteMsg"), "");
+    if (r.draft.duplicate) showDuplicate(r.draft.duplicate);
   } catch (e) { msg($("pasteMsg"), e.message, true); }
   finally { $("read").disabled = false; }
 };
@@ -202,7 +212,7 @@ $("save").onclick = async () => {
   $("save").disabled = true;
   try {
     const r = await api("/api/jobs", "POST", { company: $("fCompany").value, role: $("fRole").value, location: $("fLocation").value,
-      url: $("fUrl").value, source: draft?.source || "", description: $("fDescription").value });
+      url: $("fUrl").value, source: draft?.source || "", description: $("fDescription").value, force: !!draft?.duplicate });
     resetPaste();
     msg($("pasteMsg"), r.warning || "");
     await refresh();

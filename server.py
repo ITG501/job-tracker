@@ -260,6 +260,67 @@ def score_job(con, job_id):
     con.commit()
 
 
+# --- duplicates -------------------------------------------------------------
+
+TRACKING = re.compile(r"^(utm_.*|trk|trackingid|refid|ebp|alternatechannel|gh_src|src|source|ref|lever-origin|fbclid|gclid)$", re.I)
+COMPANY_NOISE = {"ltd", "llc", "inc", "plc", "gmbh", "ag", "sa", "ad", "ood", "eood", "ead", "bv", "group", "bulgaria",
+                 "sofia", "the", "co", "company", "corporation", "corp", "ооо", "оод", "еоод", "ад", "еад", "българия"}
+ROLE_NOISE = {"a", "an", "and", "the", "of", "for", "in", "at", "to", "with", "m", "f", "d", "x", "bulgaria", "sofia", "remote", "hybrid"}
+
+
+def canonical_url(url):
+    """The same posting has many links: LinkedIn adds tracking text and search pages carry the id."""
+    url = (url or "").strip()
+    if not url:
+        return ""
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower().removeprefix("www.")
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    if host == "linkedin.com" or host.endswith(".linkedin.com"):
+        m = re.search(r"/jobs/view/(?:[^/?#]*-)?(\d+)", parts.path)
+        job_id = m.group(1) if m else dict(query).get("currentJobId", "")
+        if job_id:
+            return f"https://www.linkedin.com/jobs/view/{job_id}/"
+    kept = sorted((k, v) for k, v in query if not TRACKING.match(k))
+    return urllib.parse.urlunsplit(("https", host, parts.path.rstrip("/"), urllib.parse.urlencode(kept), ""))
+
+
+def company_words(name):
+    name = re.split(r"\s[–—|-]\s|\(|,", name.lower())[0]
+    return [w for w in re.findall(r"\w+", name) if w not in COMPANY_NOISE]
+
+
+def same_company(a, b):
+    x, y = company_words(a), company_words(b)
+    n = min(len(x), len(y))
+    return n > 0 and x[:n] == y[:n]
+
+
+def same_role(a, b):
+    x, y = (set(re.findall(r"\w+", s.lower())) - ROLE_NOISE for s in (a, b))
+    return bool(x and y) and len(x & y) / len(x | y) >= 0.6
+
+
+def find_duplicate(con, urls=(), company="", role=""):
+    """(job, 'link' or 'similar'), or (None, ''). A link match is certain; the same company and a
+    similar role is shown as a warning because a company can run two real openings."""
+    wanted = {canonical_url(u) for u in urls} - {""}
+    rows = con.execute("SELECT id, company, role, url, status, applied, found FROM jobs ORDER BY id").fetchall()
+    for r in rows:
+        if canonical_url(r["url"]) in wanted:
+            return r, "link"
+    if company and role:
+        for r in rows:
+            if same_company(r["company"], company) and same_role(r["role"], role):
+                return r, "similar"
+    return None, ""
+
+
+def duplicate_info(job, kind):
+    return {"id": job["id"], "kind": kind, "company": job["company"], "role": job["role"],
+            "status": job["status"], "date": job["applied"] or job["found"]}
+
+
 # --- reading a link ---------------------------------------------------------
 
 class TextOnly(HTMLParser):
@@ -369,6 +430,11 @@ def extract():
     image = body.get("image")
     url = ""
     con = db()
+    # Before any fetch or AI call, so a known link costs nothing
+    links = re.findall(r"https?://\S+", text) + [body.get("url") or ""]
+    job, kind = find_duplicate(con, links)
+    if job:
+        return jsonify(duplicate=duplicate_info(job, kind))
     if image:
         media = image.get("media_type")
         if media not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
@@ -392,8 +458,10 @@ def extract():
     if not r["is_job"]:
         return jsonify(error="That doesn't look like a job posting."), 422
     r.pop("is_job")
-    r["url"] = url or body.get("url") or ""
+    r["url"] = canonical_url(url or body.get("url") or "")
     r["source"] = "LinkedIn" if "linkedin." in r["url"] else (urllib.parse.urlsplit(r["url"]).hostname or "Pasted")
+    job, kind = find_duplicate(con, [], r["company"], r["role"])
+    r["duplicate"] = duplicate_info(job, kind) if job else None
     return jsonify(draft=r)
 
 
@@ -403,13 +471,12 @@ def add_job():
     if not (b.get("company") or "").strip() or not (b.get("role") or "").strip():
         return jsonify(error="Company and role are needed."), 400
     con = db()
-    dupe = con.execute("SELECT id FROM jobs WHERE (url <> '' AND url = ?) OR (lower(company) = lower(?) AND lower(role) = lower(?))",
-                       (b.get("url", ""), b["company"].strip(), b["role"].strip())).fetchone()
-    if dupe:
-        return jsonify(error="Already in the tracker.", id=dupe["id"]), 409
+    job, kind = find_duplicate(con, [b.get("url", "")], b["company"].strip(), b["role"].strip())
+    if job and (kind == "link" or not b.get("force")):
+        return jsonify(error=f"Already in the tracker: {job['role']} at {job['company']}.", id=job["id"]), 409
     cur = con.execute(
         "INSERT INTO jobs(company, role, location, url, source, status, description, found, updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-        (b["company"].strip(), b["role"].strip(), b.get("location", ""), b.get("url", ""), b.get("source", ""),
+        (b["company"].strip(), b["role"].strip(), b.get("location", ""), canonical_url(b.get("url", "")), b.get("source", ""),
          "to_apply", b.get("description", ""), date.today().isoformat(), now()))
     con.commit()
     try:
@@ -603,7 +670,7 @@ def ingest_alerts():
     for j in jobs[:50]:
         ext = f"linkedin:{j['id']}"
         url = f"https://www.linkedin.com/jobs/view/{j['id']}/"
-        if con.execute("SELECT 1 FROM jobs WHERE external_id = ? OR url = ?", (ext, url)).fetchone():
+        if find_duplicate(con, [url], j.get("company", ""), j.get("title", ""))[0]:
             continue
         con.execute("INSERT INTO jobs(company, role, location, url, source, status, found, external_id, updated_at) "
                     "VALUES(?,?,?,?,'LinkedIn alert','suggested',?,?,?)",
