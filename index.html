@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job Tracker</title>
+<style>
+:root { --bg:#f0f2f5; --surface:#fff; --surface2:#f4f7fb; --border:#dde1e7; --navy:#1a3a6b; --navy-dark:#14305a;
+  --text:#1a1a2e; --text2:#4a5568; --text3:#888; --danger:#e05454; --success:#2e7d4f; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text2); font:14px 'Segoe UI', Arial, sans-serif; }
+header { background:#1a3a6b; padding:16px 32px; display:flex; align-items:center; gap:14px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+header h1 { font-size:15px; font-weight:700; color:#fff; margin:0; }
+header p { font-size:12px; color:rgba(255,255,255,.5); margin:0 0 0 auto; }
+.logo-mark { width:36px; height:36px; background:#fff; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+.logo-mark svg { width:22px; height:22px; }
+main { max-width:1000px; margin:24px auto; padding:0 16px; display:grid; gap:18px; }
+.card { background:#fff; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,.10); padding:24px 28px; }
+h2 { font-size:15px; color:var(--text); margin:0 0 12px; }
+label { display:block; font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; margin:12px 0 4px; }
+input, select, textarea { width:100%; padding:11px 14px; border:1.5px solid #dde1e7; border-radius:8px; font:inherit; font-size:15px; background:#fafbfc; color:var(--text); }
+textarea { resize:vertical; }
+input:focus, select:focus, textarea:focus { border-color:#1a3a6b; box-shadow:0 0 0 3px rgba(26,58,107,.10); outline:none; }
+#paste.drag { border-color:var(--navy); background:var(--surface2); }
+.btn { padding:10px 18px; background:#1a3a6b; color:#fff; border:none; border-radius:8px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; transition:background .18s, transform .1s; }
+.btn:hover { background:#14305a; } .btn:active { transform:scale(.98); }
+.btn:disabled { opacity:.5; cursor:default; }
+.btn.ghost { background:var(--surface2); color:var(--navy); }
+.btn.ghost:hover { background:#e6ecf5; }
+.actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+.row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.info-box { background:#f4f7fb; border-radius:8px; padding:13px 16px; font-size:13px; color:#4a5568; margin-top:12px; }
+.info-box.bad { color:#a12f2f; background:#fdf0f0; }
+.tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+.tabs button { border:none; background:var(--surface2); color:var(--text2); padding:7px 12px; border-radius:8px; font:inherit; font-size:13px; cursor:pointer; }
+.tabs button.on { background:var(--navy); color:#fff; }
+.job { display:grid; grid-template-columns:44px 1fr auto; gap:12px; align-items:center; padding:11px 4px; border-top:1px solid var(--border); cursor:pointer; }
+.job:hover { background:var(--surface2); }
+.job b { color:var(--text); font-weight:600; display:block; }
+.job small { color:var(--text3); }
+.score { font-weight:700; color:var(--navy); text-align:center; font-size:15px; }
+.pill { font-size:12px; padding:3px 9px; border-radius:99px; background:var(--surface2); color:var(--text2); white-space:nowrap; }
+.update { border-top:1px solid var(--border); padding:11px 0; }
+.update b { color:var(--text); }
+dialog { border:none; border-radius:12px; padding:0; width:min(760px, calc(100vw - 32px)); max-height:calc(100vh - 32px); box-shadow:0 8px 40px rgba(0,0,0,.3); }
+dialog::backdrop { background:rgba(10,20,40,.45); }
+#detail { padding:24px 28px; }
+.cost { font-size:12px; color:var(--text3); }
+.hint { font-size:12px; color:var(--text3); margin-top:6px; }
+@media (max-width:640px) { header { padding:14px 16px; } .card, #detail { padding:18px 16px; } .row { grid-template-columns:1fr; } .job { grid-template-columns:36px 1fr; } .job .pill { grid-column:2; justify-self:start; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo-mark">
+    <svg viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="4" width="18" height="16" rx="2" stroke="#1a3a6b" stroke-width="1.7"/>
+      <path d="M8 2v4M16 2v4M3 10h18" stroke="#1a3a6b" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M7 14h4M7 17h6" stroke="#1a3a6b" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <h1>Job Tracker</h1>
+  <p id="spent"></p>
+</header>
+<main>
+  <section class="card">
+    <h2>Add job</h2>
+    <textarea id="paste" rows="4" placeholder="Paste a link, a screenshot or the job description"></textarea>
+    <div class="hint" id="imageNote">Screenshots: Ctrl+V here, or drag the image in.</div>
+    <div class="actions"><button class="btn" id="read">Read it</button></div>
+    <div id="pasteMsg"></div>
+    <div id="confirm" hidden>
+      <div class="row">
+        <div><label for="fCompany">Company</label><input id="fCompany"></div>
+        <div><label for="fRole">Role</label><input id="fRole"></div>
+        <div><label for="fLocation">Location</label><input id="fLocation"></div>
+        <div><label for="fUrl">Link</label><input id="fUrl"></div>
+      </div>
+      <label for="fDescription">Description</label><textarea id="fDescription" rows="6"></textarea>
+      <div class="actions"><button class="btn" id="save">Save and score</button><button class="btn ghost" id="discard">Discard</button></div>
+    </div>
+  </section>
+
+  <section class="card" id="updatesCard" hidden>
+    <h2>Mail updates</h2>
+    <div id="updates"></div>
+  </section>
+
+  <section class="card">
+    <div class="tabs" id="tabs"></div>
+    <div id="jobs"></div>
+  </section>
+</main>
+<dialog id="dialog"><div id="detail"></div></dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const TABS = { Active: ["to_apply", "applied", "interview", "offer"], Suggested: ["suggested"], Closed: ["rejected", "closed"] };
+const LABEL = { suggested: "Suggested", to_apply: "To apply", applied: "Applied", interview: "Interview", offer: "Offer", rejected: "Rejected", closed: "Closed" };
+let state = null, tab = "Active", image = null, draft = null;
+
+function el(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  kids.forEach(k => n.append(k));
+  return n;
+}
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const ct = r.headers.get("Content-Type") || "";
+  if (!ct.includes("json")) throw new Error("The session may have expired. Reload the page.");
+  const data = await r.json();
+  if (!r.ok && !data.needs_text) throw Object.assign(new Error(data.error || "Something went wrong."), { data });
+  return data;
+}
+
+function msg(target, text, bad) {
+  target.replaceChildren(text ? el("div", { className: "info-box" + (bad ? " bad" : ""), textContent: text }) : "");
+}
+
+async function refresh() {
+  state = await api("/api/state");
+  $("spent").textContent = `AI this month: $${state.spent.toFixed(2)} of $${state.limit.toFixed(0)}`;
+  renderTabs(); renderJobs(); renderUpdates();
+}
+
+function renderTabs() {
+  $("tabs").replaceChildren(...Object.keys(TABS).map(t => {
+    const n = state.jobs.filter(j => TABS[t].includes(j.status)).length;
+    return el("button", { textContent: `${t} (${n})`, className: t === tab ? "on" : "", onclick() { tab = t; renderTabs(); renderJobs(); } });
+  }));
+}
+
+function renderJobs() {
+  let list = state.jobs.filter(j => TABS[tab].includes(j.status));
+  if (tab === "Suggested") list = list.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  $("jobs").replaceChildren(...list.map(j => el("div", { className: "job", onclick: () => openJob(j.id) },
+    el("div", { className: "score", textContent: j.score ?? "–" }),
+    el("div", {}, el("b", { textContent: j.role }), el("small", { textContent: [j.company, j.location, j.applied || j.found].filter(Boolean).join(" · ") })),
+    el("span", { className: "pill", textContent: LABEL[j.status] }))));
+  if (!list.length) $("jobs").textContent = "Nothing here yet.";
+}
+
+function renderUpdates() {
+  $("updatesCard").hidden = !state.updates.length;
+  $("updates").replaceChildren(...state.updates.map(u => {
+    const pick = el("select", {}, el("option", { value: "", textContent: "No matching job" }),
+      ...state.jobs.filter(j => j.status !== "suggested").map(j => el("option", { value: j.id, textContent: `${j.company}: ${j.role}`, selected: j.id === u.job_id })));
+    const canApply = ["rejection", "interview", "assessment", "offer"].includes(u.kind);
+    const send = apply => api(`/api/updates/${u.id}`, "POST", { apply, job_id: pick.value ? +pick.value : null }).then(refresh);
+    return el("div", { className: "update" },
+      el("b", { textContent: `${u.kind}: ${u.subject}` }), el("div", { textContent: u.summary }),
+      el("small", { textContent: u.sender }), pick,
+      el("div", { className: "actions" },
+        ...(canApply ? [el("button", { className: "btn", textContent: "Update job", onclick: () => send(true) })] : []),
+        el("button", { className: "btn ghost", textContent: "Dismiss", onclick: () => send(false) })));
+  }));
+}
+
+// paste box
+function setImage(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  const r = new FileReader();
+  r.onload = () => {
+    image = { media_type: file.type, data: r.result.split(",")[1] };
+    $("imageNote").textContent = `Screenshot ready (${Math.round(file.size / 1024)} KB).`;
+  };
+  r.readAsDataURL(file);
+}
+$("paste").addEventListener("paste", e => {
+  const f = [...e.clipboardData.files].find(x => x.type.startsWith("image/"));
+  if (f) { e.preventDefault(); setImage(f); }
+});
+$("paste").addEventListener("dragover", e => { e.preventDefault(); $("paste").classList.add("drag"); });
+$("paste").addEventListener("dragleave", () => $("paste").classList.remove("drag"));
+$("paste").addEventListener("drop", e => { e.preventDefault(); $("paste").classList.remove("drag"); setImage(e.dataTransfer.files[0]); });
+
+function resetPaste() {
+  image = null; draft = null;
+  $("paste").value = "";
+  $("confirm").hidden = true;
+  $("imageNote").textContent = "Screenshots: Ctrl+V here, or drag the image in.";
+}
+
+$("read").onclick = async () => {
+  $("read").disabled = true;
+  msg($("pasteMsg"), "Reading…");
+  try {
+    const r = await api("/api/extract", "POST", { text: $("paste").value, image, url: draft?.url });
+    if (r.needs_text) { draft = { url: r.url }; $("paste").value = ""; msg($("pasteMsg"), r.message, true); return; }
+    draft = r.draft;
+    $("fCompany").value = r.draft.company; $("fRole").value = r.draft.role; $("fLocation").value = r.draft.location;
+    $("fUrl").value = r.draft.url; $("fDescription").value = r.draft.description;
+    $("confirm").hidden = false;
+    msg($("pasteMsg"), "");
+  } catch (e) { msg($("pasteMsg"), e.message, true); }
+  finally { $("read").disabled = false; }
+};
+
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  try {
+    const r = await api("/api/jobs", "POST", { company: $("fCompany").value, role: $("fRole").value, location: $("fLocation").value,
+      url: $("fUrl").value, source: draft?.source || "", description: $("fDescription").value });
+    resetPaste();
+    msg($("pasteMsg"), r.warning || "");
+    await refresh();
+    openJob(r.id);
+  } catch (e) {
+    msg($("pasteMsg"), e.message, true);
+    if (e.data?.id) openJob(e.data.id);
+  } finally { $("save").disabled = false; }
+};
+$("discard").onclick = () => { resetPaste(); msg($("pasteMsg"), ""); };
+
+// job detail
+async function openJob(id) {
+  const { job, drafts } = await api(`/api/jobs/${id}`);
+  const status = el("select", { id: "dStatus" }, ...state.statuses.map(s => el("option", { value: s, textContent: LABEL[s], selected: s === job.status })));
+  const notes = el("textarea", { id: "dNotes", rows: 4, value: job.notes });
+  const desc = el("textarea", { id: "dDesc", rows: 6, value: job.description });
+  const note = el("div");
+  const save = async () => {
+    await api(`/api/jobs/${id}`, "PATCH", { status: status.value, notes: notes.value, description: desc.value });
+    msg(note, "Saved.");
+    await refresh();
+  };
+  const cvBtn = el("button", { className: "btn ghost", textContent: "Draft CV", onclick: async () => {
+    cvBtn.disabled = true; await save(); msg(note, "Drafting…");
+    try { await api(`/api/jobs/${id}/cv`, "POST"); openJob(id); } catch (e) { msg(note, e.message, true); cvBtn.disabled = false; }
+  } });
+  const scoreBtn = el("button", { className: "btn ghost", textContent: "Score again", onclick: async () => {
+    await save(); try { await api(`/api/jobs/${id}/score`, "POST"); await refresh(); openJob(id); } catch (e) { msg(note, e.message, true); }
+  } });
+  const link = job.url && /^https?:/.test(job.url) ? el("a", { href: job.url, target: "_blank", rel: "noopener noreferrer", textContent: "Open posting" }) : "";
+  $("detail").replaceChildren(
+    el("h2", { textContent: `${job.role} · ${job.company}` }),
+    el("div", {}, [job.location, job.applied && `applied ${job.applied}`].filter(Boolean).join(" · ") + " ", link),
+    job.score != null ? el("div", { className: "info-box", textContent: `${job.score}/100 (${job.fit}). ${job.score_reason}${job.score_gaps ? " Gaps: " + job.score_gaps : ""}` }) : "",
+    el("label", { textContent: "Status" }), status,
+    el("label", { textContent: "Notes" }), notes,
+    el("label", { textContent: "Description" }), desc,
+    el("div", { className: "actions" },
+      el("button", { className: "btn", textContent: "Save", onclick: save }), scoreBtn, cvBtn,
+      el("button", { className: "btn ghost", textContent: "Close", onclick: () => $("dialog").close() })),
+    note, ...drafts.map(renderDraft(id)));
+  if (!$("dialog").open) $("dialog").showModal();
+}
+
+const renderDraft = jobId => d => {
+  const sub = el("input", { value: d.subtitle });
+  const prof = el("textarea", { rows: 5, value: d.profile });
+  const skills = el("textarea", { rows: 3, value: d.skills.join("\n") });
+  const note = el("div");
+  const rebuild = async () => {
+    await api(`/api/cv/${d.id}`, "PATCH", { subtitle: sub.value, profile: prof.value, skills: skills.value.split("\n") });
+    openJob(jobId);
+  };
+  return el("div", { className: "update" },
+    el("h2", { textContent: `CV draft ${d.id}${d.approved ? " · approved" : ""}` }),
+    el("div", { textContent: d.reason }),
+    ...d.warnings.map(w => el("div", { className: "info-box bad", textContent: w })),
+    el("label", { textContent: "Subtitle" }), sub, el("label", { textContent: "Profile" }), prof,
+    el("label", { textContent: "Skills, one per line" }), skills,
+    el("div", { className: "actions" },
+      el("button", { className: "btn ghost", textContent: "Rebuild PDF", onclick: () => rebuild().catch(e => msg(note, e.message, true)) }),
+      el("a", { className: "btn ghost", href: `/api/cv/${d.id}/pdf`, target: "_blank", rel: "noopener", textContent: "View PDF", style: "text-decoration:none" }),
+      el("a", { className: "btn ghost", href: `/api/cv/${d.id}/pdf?download=1`, textContent: "Download", style: "text-decoration:none" }),
+      el("button", { className: "btn", textContent: "Approve", disabled: !!d.approved, onclick: () => api(`/api/cv/${d.id}/approve`, "POST").then(() => openJob(jobId)) })),
+    note);
+};
+
+refresh().catch(e => { document.querySelector("main").prepend(el("div", { className: "info-box bad", textContent: e.message })); });
+</script>
+</body>
+</html>
