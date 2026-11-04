@@ -13,6 +13,7 @@ import re
 import socket
 import sqlite3
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -244,6 +245,29 @@ def extract_job(con, blocks):
               "as plain text, kept close to the original, without page furniture. Leave a field empty "
               "if it isn't shown, never guess. is_job = false if this isn't a job posting. " + DATA_RULE)
     return ask_claude(con, "extract", HAIKU, system, blocks, EXTRACT_SCHEMA, 3000)
+
+
+def fill_description(con, job_id):
+    """A job with no description, or only a link in it, gets the posting's text from that link
+    (or the job's own link). Returns False if there was a link but the page couldn't be read."""
+    job = con.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    desc = job["description"].strip()
+    if desc and not re.fullmatch(r"https?://\S+", desc):
+        return True
+    url = desc or job["url"]
+    if not re.fullmatch(r"https?://\S+", url or ""):
+        return True
+    text = fetch_page(url)
+    if len(text) < 200:
+        return False
+    r = extract_job(con, f"<posting>\n{text[:40000]}\n</posting>")
+    if not r["is_job"] or len(r["description"]) < 200:
+        return False
+    con.execute("UPDATE jobs SET description = ?, location = CASE WHEN location = '' THEN ? ELSE location END, "
+                "url = CASE WHEN url = '' THEN ? ELSE url END, updated_at = ? WHERE id = ?",
+                (r["description"], r["location"], canonical_url(url), now(), job_id))
+    con.commit()
+    return True
 
 
 def score_job(con, job_id):
@@ -505,8 +529,12 @@ def edit_job(job_id):
 
 @app.route("/api/jobs/<int:job_id>/score", methods=["POST"])
 def rescore(job_id):
+    con = db()
     try:
-        score_job(db(), job_id)
+        if not fill_description(con, job_id):
+            return jsonify(error="That site wouldn't let the Pi read the page. Paste the job text "
+                                 "into the Description box instead."), 422
+        score_job(con, job_id)
     except AIUnavailable as e:
         return jsonify(error=str(e)), 503
     return jsonify(ok=True)
@@ -654,9 +682,11 @@ def score_pending():
         con = connect()
         for row in con.execute("SELECT id FROM jobs WHERE status='suggested' AND score IS NULL").fetchall():
             try:
+                fill_description(con, row["id"])   # if LinkedIn blocks us, score from the title
                 score_job(con, row["id"])
             except AIUnavailable:
                 break
+            time.sleep(3)   # go easy on LinkedIn
         con.close()
     finally:
         scoring.release()
