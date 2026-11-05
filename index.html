@@ -47,6 +47,14 @@ dialog::backdrop { background:rgba(10,20,40,.45); }
 #detail { padding:24px 28px; }
 .cost { font-size:12px; color:var(--text3); }
 .hint { font-size:12px; color:var(--text3); margin-top:6px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.chip { font-size:12px; padding:3px 9px; border-radius:99px; background:#e8f3ec; color:var(--success); }
+.chip.no { background:var(--surface2); color:var(--text3); }
+.chip button { border:none; background:none; color:inherit; cursor:pointer; padding:0 0 0 4px; font:inherit; }
+.newskill { display:grid; grid-template-columns:20px 1fr; gap:8px; align-items:center; margin-top:6px; }
+.newskill input[type=checkbox] { width:18px; height:18px; margin:0; }
+.newskill input[type=text] { padding:6px 10px; font-size:14px; }
+summary { cursor:pointer; font-size:15px; font-weight:700; color:var(--text); }
 @media (max-width:640px) { header { padding:14px 16px; } .card, #detail { padding:18px 16px; } .row { grid-template-columns:1fr; } .job { grid-template-columns:36px 1fr; } .job .pill { grid-column:2; justify-self:start; } }
 </style>
 </head>
@@ -89,6 +97,10 @@ dialog::backdrop { background:rgba(10,20,40,.45); }
   <section class="card">
     <div class="tabs" id="tabs"></div>
     <div id="jobs"></div>
+  </section>
+
+  <section class="card">
+    <details id="skillsCard"><summary>My skills</summary><div id="mySkills"></div></details>
   </section>
 </main>
 <dialog id="dialog"><div id="detail"></div></dialog>
@@ -226,7 +238,7 @@ $("discard").onclick = () => { resetPaste(); msg($("pasteMsg"), ""); };
 
 // job detail
 async function openJob(id) {
-  const { job, drafts } = await api(`/api/jobs/${id}`);
+  const { job, drafts, skills } = await api(`/api/jobs/${id}`);
   const status = el("select", { id: "dStatus" }, ...state.statuses.map(s => el("option", { value: s, textContent: LABEL[s], selected: s === job.status })));
   const notes = el("textarea", { id: "dNotes", rows: 4, value: job.notes });
   const desc = el("textarea", { id: "dDesc", rows: 6, value: job.description });
@@ -248,6 +260,7 @@ async function openJob(id) {
     el("h2", { textContent: `${job.role} · ${job.company}` }),
     el("div", {}, [job.location, job.applied && `applied ${job.applied}`].filter(Boolean).join(" · ") + " ", link),
     job.score != null ? el("div", { className: "info-box", textContent: `${job.score}/100 (${job.fit}). ${job.score_reason}${job.score_gaps ? " Gaps: " + job.score_gaps : ""}` }) : "",
+    renderJobSkills(id, skills),
     el("label", { textContent: "Status" }), status,
     el("label", { textContent: "Notes" }), notes,
     el("label", { textContent: "Description" }), desc,
@@ -257,6 +270,47 @@ async function openJob(id) {
     note, ...drafts.map(renderDraft(id)));
   if (!$("dialog").open) $("dialog").showModal();
 }
+
+function renderJobSkills(jobId, skills) {
+  if (!skills.length) return "";
+  const have = skills.filter(s => s.status === "have"), no = skills.filter(s => s.status === "not_mine");
+  const fresh = skills.filter(s => s.status === "new");
+  const label = s => s.as && s.as.toLowerCase() !== s.name.toLowerCase() ? `${s.name} → ${s.as}` : s.name;
+  const box = el("div", {}, el("label", { textContent: "Skills the posting asks for" }));
+  if (have.length) box.append(el("div", { className: "chips" }, ...have.map(s => el("span", { className: "chip", textContent: "✓ " + label(s) }))));
+  if (no.length) box.append(el("div", { className: "chips" }, ...no.map(s => el("span", { className: "chip no", textContent: "✗ " + s.name }))));
+  if (fresh.length) {
+    const rows = fresh.map(s => ({ s, tick: el("input", { type: "checkbox" }), name: el("input", { type: "text", value: s.name }) }));
+    const note = el("div");
+    box.append(el("div", { className: "hint", textContent: "Not on your CV. Tick the ones you really have (you can rename them as they should appear on a CV). The rest are remembered as not yours." }),
+      ...rows.map(r => el("div", { className: "newskill" }, r.tick, r.name)),
+      el("div", { className: "actions" }, el("button", { className: "btn ghost", textContent: "Save skills", onclick: async () => {
+        try {
+          await api(`/api/jobs/${jobId}/skills`, "POST", {
+            add: rows.filter(r => r.tick.checked).map(r => ({ name: r.s.name, as: r.name.value })),
+            decline: rows.filter(r => !r.tick.checked).map(r => r.s.name) });
+          await renderMySkills(); openJob(jobId);
+        } catch (e) { msg(note, e.message, true); }
+      } })), note);
+  }
+  return box;
+}
+
+async function renderMySkills() {
+  const r = await api("/api/skills");
+  const remove = name => api("/api/skills/remove", "POST", { name }).then(renderMySkills);
+  const chip = (cls, row) => el("span", { className: cls, title: row.company ? `From ${row.company}` : "" }, row.name,
+    el("button", { textContent: "×", title: "Remove", onclick: () => remove(row.name) }));
+  $("mySkills").replaceChildren(
+    el("label", { textContent: `Added from job postings (${r.added.length})` }),
+    r.added.length ? el("div", { className: "chips" }, ...r.added.map(a => chip("chip", a))) : el("div", { className: "hint", textContent: "None yet." }),
+    r.added.length ? el("div", { className: "hint", textContent: "Copy these into the CV source on Windows too: " + r.added.map(a => a.name).join(", ") }) : "",
+    el("label", { textContent: `Not mine (${r.not_mine.length})` }),
+    r.not_mine.length ? el("div", { className: "chips" }, ...r.not_mine.map(a => chip("chip no", a))) : el("div", { className: "hint", textContent: "None yet." }),
+    el("label", { textContent: `From the CV source (${r.cv.length})` }),
+    el("div", { className: "chips" }, ...r.cv.map(n => el("span", { className: "chip", textContent: n }))));
+}
+$("skillsCard").addEventListener("toggle", () => { if ($("skillsCard").open) renderMySkills(); });
 
 const renderDraft = jobId => d => {
   const sub = el("input", { value: d.subtitle });
