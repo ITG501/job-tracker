@@ -330,7 +330,8 @@ def score_job(con, job_id):
               "skills: the concrete skills, tools, systems and knowledge areas the posting asks for, at most 15, "
               "each as a short CV-style name of 1-4 words (e.g. 'SAP MM', 'Incoterms', 'Supplier Negotiation'). "
               "match: the exact name from the candidate's Skills list that covers it, or empty if none does. "
-              "Leave skills empty if only a title is given, and don't list soft skills like communication or teamwork.\n"
+              "Leave skills empty if only a title is given. Don't list soft skills like communication or teamwork, "
+              "or languages (the CV lists those separately).\n"
               f"Base it only on this CV:\n\n{candidate_text(cv_content(), pool)}\n\n" + DATA_RULE)
     posting = f"<posting>\n{job['role']} at {job['company']}, {job['location']}\n{job['description']}\n</posting>"
     r = ask_claude(con, "score", HAIKU, system, posting, SCORE_SCHEMA, 3000)
