@@ -32,6 +32,7 @@ DB_PATH = DATA / "tracker.db"
 CV_DIR = DATA / "cvs"
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 NTFY_URL = "https://ntfy.ivanbogoev.com/pi-jobs"
+NTFY_TOKEN = os.environ.get("NTFY_TOKEN", "")
 
 HAIKU, SONNET = "claude-haiku-5-5", "claude-sonnet-5-5"
 PRICES = {HAIKU: (0.10, 0.50), SONNET: (2.00, 10.00)}   # USD per 1M tokens, in/out
@@ -142,7 +143,8 @@ def no_cache(resp):
 def ntfy(title, message):
     req = urllib.request.Request(NTFY_URL, data=message.encode(), method="POST", headers={
         "Content-Type": "text/plain", "Title": title.encode("ascii", "ignore").decode(),
-        "Tags": "briefcase", "User-Agent": "job-tracker/1"})
+        "Tags": "briefcase", "User-Agent": "job-tracker/1",
+        **({"Authorization": f"Bearer {NTFY_TOKEN}"} if NTFY_TOKEN else {})})
     try:
         urllib.request.urlopen(req, timeout=10).close()
     except OSError as e:
