@@ -33,6 +33,11 @@ CV_DIR = DATA / "cvs"
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 NTFY_URL = "https://ntfy.ivanbogoev.com/pi-jobs"
 NTFY_TOKEN = os.environ.get("NTFY_TOKEN", "")
+# Approved CVs are copied here. All three credentials must be set in .env, or approving only marks the draft.
+NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "").rstrip("/")
+NEXTCLOUD_USER = os.environ.get("NEXTCLOUD_USER", "")
+NEXTCLOUD_APP_PASSWORD = os.environ.get("NEXTCLOUD_APP_PASSWORD", "")
+NEXTCLOUD_CV_FOLDER = os.environ.get("NEXTCLOUD_CV_FOLDER", "Job search/Generated CVs")
 
 HAIKU, SONNET = "claude-haiku-5-5", "claude-sonnet-5-5"
 PRICES = {HAIKU: (0.10, 0.50), SONNET: (2.00, 10.00)}   # USD per 1M tokens, in/out
@@ -749,16 +754,66 @@ def edit_cv(draft_id):
     return jsonify(ok=True, warnings=warnings)
 
 
+def nextcloud_configured():
+    return bool(NEXTCLOUD_URL and NEXTCLOUD_USER and NEXTCLOUD_APP_PASSWORD)
+
+
+def _nextcloud_request(method, rel, data=None, content_type=None):
+    """One WebDAV request under the user's files. Returns the HTTP status code."""
+    url = (f"{NEXTCLOUD_URL}/remote.php/dav/files/{urllib.parse.quote(NEXTCLOUD_USER)}/"
+           + "/".join(urllib.parse.quote(p) for p in rel.split("/")))
+    req = urllib.request.Request(url, data=data, method=method)
+    token = base64.b64encode(f"{NEXTCLOUD_USER}:{NEXTCLOUD_APP_PASSWORD}".encode()).decode()
+    req.add_header("Authorization", f"Basic {token}")
+    req.add_header("User-Agent", "job-tracker")   # Cloudflare blocks the default Python UA
+    if content_type:
+        req.add_header("Content-Type", content_type)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def save_cv_to_nextcloud(pdf_path, name):
+    """Copy one approved CV into the Nextcloud CV folder, creating folders as needed.
+    Raises RuntimeError with the HTTP status when Nextcloud refuses."""
+    parts = [p for p in NEXTCLOUD_CV_FOLDER.split("/") if p]
+    for i in range(1, len(parts) + 1):
+        folder = "/".join(parts[:i])
+        code = _nextcloud_request("MKCOL", folder)
+        if code not in (201, 405):          # 405 = the folder already exists
+            raise RuntimeError(f"folder {folder} failed (HTTP {code})")
+    rel = f"{NEXTCLOUD_CV_FOLDER}/{name}"
+    code = _nextcloud_request("PUT", rel, data=pdf_path.read_bytes(), content_type="application/pdf")
+    if code not in (201, 204):
+        raise RuntimeError(f"upload failed (HTTP {code})")
+    return rel
+
+
 @app.route("/api/cv/<int:draft_id>/approve", methods=["POST"])
 def approve_cv(draft_id):
     con = db()
-    d = con.execute("SELECT job_id FROM cv_drafts WHERE id = ?", (draft_id,)).fetchone()
+    d = con.execute("SELECT d.job_id, j.company FROM cv_drafts d JOIN jobs j ON j.id = d.job_id WHERE d.id = ?",
+                    (draft_id,)).fetchone()
     if not d:
         return jsonify(error="not found"), 404
+    saved = None
+    if nextcloud_configured():
+        path = CV_DIR / f"{draft_id}.pdf"
+        if not path.exists():
+            return jsonify(error="The CV PDF is missing. Edit the draft to rebuild it."), 404
+        company = re.sub(r"[^\w .&-]", "", d["company"]).strip() or "Job"
+        name = f"Ivan Bogoev CV - {company} - {date.today().isoformat()} (draft {draft_id}).pdf"
+        try:
+            saved = save_cv_to_nextcloud(path, name)
+        except (RuntimeError, OSError) as e:
+            # Nothing is marked approved, so pressing Approve again retries the copy.
+            return jsonify(error=f"Not approved, the CV was not saved to Nextcloud: {e}"), 502
     con.execute("UPDATE cv_drafts SET approved = 1 WHERE id = ?", (draft_id,))
     con.execute("UPDATE jobs SET cv = ?, updated_at = ? WHERE id = ?", (f"draft {draft_id}", now(), d["job_id"]))
     con.commit()
-    return jsonify(ok=True)
+    return jsonify(ok=True, saved=saved)
 
 
 @app.route("/api/cv/<int:draft_id>/pdf")
