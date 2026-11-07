@@ -92,8 +92,12 @@ class NextcloudTests(unittest.TestCase):
         with mock.patch.multiple(server, **NC), mock.patch("urllib.request.urlopen", fake):
             r = self.c.post(f"/api/cv/{self.draft_id}/approve")
         self.assertEqual(r.status_code, 200, r.json)
-        self.assertIn("Ivan Bogoev CV - Acme & Co - ", r.json["saved"])
+        self.assertEqual(r.json["saved"], f"Job search/Generated CVs/now Acme & Co - Buyer (draft {self.draft_id} approved).pdf")
         self.assertTrue(self.approved())
+
+    def test_file_name(self):
+        self.assertEqual(server.cv_file_name(3, "2026-11-03T15:05:00Z", "Ottobock", "Engineer / Config: EU"),
+                         "2026-11-03 Ottobock - Engineer Config EU (draft 3 approved).pdf")
 
     def test_failed_upload_leaves_draft_unapproved(self):
         fake = FakeNextcloud({"PUT": 507})

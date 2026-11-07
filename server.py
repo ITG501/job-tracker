@@ -791,11 +791,18 @@ def save_cv_to_nextcloud(pdf_path, name):
     return rel
 
 
+def cv_file_name(draft_id, created, company, role):
+    """Same style as the hand-saved files in the folder: '2026-11-03 Ottobock - Role (draft 3 approved).pdf'."""
+    clean = lambda s: re.sub(r"\s+", " ", re.sub(r"[^\w .,&()+-]", " ", s or "")).strip()
+    parts = " - ".join(p for p in (clean(company) or "Job", clean(role)) if p)
+    return f"{(created or date.today().isoformat())[:10]} {parts} (draft {draft_id} approved).pdf"
+
+
 @app.route("/api/cv/<int:draft_id>/approve", methods=["POST"])
 def approve_cv(draft_id):
     con = db()
-    d = con.execute("SELECT d.job_id, j.company FROM cv_drafts d JOIN jobs j ON j.id = d.job_id WHERE d.id = ?",
-                    (draft_id,)).fetchone()
+    d = con.execute("SELECT d.job_id, d.created, j.company, j.role FROM cv_drafts d JOIN jobs j ON j.id = d.job_id "
+                    "WHERE d.id = ?", (draft_id,)).fetchone()
     if not d:
         return jsonify(error="not found"), 404
     saved = None
@@ -803,8 +810,7 @@ def approve_cv(draft_id):
         path = CV_DIR / f"{draft_id}.pdf"
         if not path.exists():
             return jsonify(error="The CV PDF is missing. Edit the draft to rebuild it."), 404
-        company = re.sub(r"[^\w .&-]", "", d["company"]).strip() or "Job"
-        name = f"Ivan Bogoev CV - {company} - {date.today().isoformat()} (draft {draft_id}).pdf"
+        name = cv_file_name(draft_id, d["created"], d["company"], d["role"])
         try:
             saved = save_cv_to_nextcloud(path, name)
         except (RuntimeError, OSError) as e:
