@@ -304,7 +304,7 @@ async function renderMySkills() {
   $("mySkills").replaceChildren(
     el("label", { textContent: `Added from job postings (${r.added.length})` }),
     r.added.length ? el("div", { className: "chips" }, ...r.added.map(a => chip("chip", a))) : el("div", { className: "hint", textContent: "None yet." }),
-    r.added.length ? el("div", { className: "hint", textContent: "Copy these into the CV source on Windows too: " + r.added.map(a => a.name).join(", ") }) : "",
+    r.added.length ? el("div", { className: "hint", textContent: "Copy these into the CV source in Nextcloud (Job search/source) too: " + r.added.map(a => a.name).join(", ") }) : "",
     el("label", { textContent: `Not mine (${r.not_mine.length})` }),
     r.not_mine.length ? el("div", { className: "chips" }, ...r.not_mine.map(a => chip("chip no", a))) : el("div", { className: "hint", textContent: "None yet." }),
     el("label", { textContent: `From the CV source (${r.cv.length})` }),
