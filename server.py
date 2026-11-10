@@ -701,7 +701,9 @@ def draft_cv(job_id):
         "2-3 sentences and at most 300 characters, and 10-12 skills.\n"
         "Hard rules: use only facts from the CV below. Never invent numbers, employers, tools, certificates or "
         "experience. Don't claim anything the posting wants that the CV doesn't show. Never mention team or "
-        "people management. Skills must be copied exactly from the allowed list. "
+        "people management. Ivan doesn't write code by hand: present Python, Flask, scripts, webhooks and "
+        "similar as tools he designs, builds with AI coding tools (Claude Code), tests and runs, never as "
+        "hand-coded programming. Skills must be copied exactly from the allowed list. "
         "Plain, direct wording. reason: one sentence on what you emphasised.\n\n"
         f"CV:\n{candidate_text(content, allowed)}\n\nBase versions:\n{json.dumps(versions, ensure_ascii=False)}\n\n"
         f"Allowed skills:\n{json.dumps(sorted(allowed, key=str.lower), ensure_ascii=False)}\n\n" + DATA_RULE)
